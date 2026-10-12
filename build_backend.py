@@ -119,6 +119,15 @@ def _in_isolated_build_env() -> bool:
     return any(m in p for m in markers for p in paths)
 
 
+def _no_pip_installs() -> bool:
+    """True when the environment is preprovisioned and the hooks must not install.
+
+    Set by the CI scripts: they build with --no-build-isolation, which would
+    otherwise turn hook installs that isolation always swallowed into downloads.
+    """
+    return os.environ.get("FLASHINFER_BUILD_NO_PIP") == "1"
+
+
 def _detect_cuda_major() -> int:
     """Best-effort detection of the CUDA major version on the host."""
     try:
@@ -536,6 +545,12 @@ def _ensure_nixl_wheel() -> None:
     """
     if _find_nixl_wheel_lib_dir() is not None:
         return
+    if _no_pip_installs():
+        print(
+            "[BUILD_NVEP] FLASHINFER_BUILD_NO_PIP=1; no NIXL wheel to "
+            "pre-install, so the pre-flight probe will skip NIXL-EP"
+        )
+        return
     cuda_major = _detect_cuda_major()
     wheel = f"nixl-cu{cuda_major}>=1.3.1"
     print(f"[BUILD_NVEP] pre-installing NIXL wheel --no-deps: {wheel}")
@@ -571,6 +586,9 @@ def _ensure_nccl_floor() -> None:
     cuda_major = _detect_cuda_major()
     if cuda_major < 13:
         return  # EP is CUDA-13-only; nothing to upgrade on cu12 hosts.
+    if _no_pip_installs():
+        print("[BUILD_NVEP] FLASHINFER_BUILD_NO_PIP=1; leaving NCCL as installed")
+        return
     wheel = "nvidia-nccl-cu13>=2.30.7"
     print(f"[BUILD_NVEP] ensuring NCCL-EP floor --no-deps: {wheel}")
 
@@ -667,6 +685,13 @@ def _install_nvep_runtime_wheels(built_nixl: bool) -> None:
         wheels.append(f"nixl-cu{cuda_major}>=1.3.1")
     if not wheels:
         return
+    if _no_pip_installs():
+        # Reachable only if the wheel was already present, since the pre-flight
+        # probe needs it to import before anything is built.
+        print(
+            "[BUILD_NVEP] FLASHINFER_BUILD_NO_PIP=1; runtime wheels left as installed"
+        )
+        return
 
     print(f"[BUILD_NVEP] installing runtime wheels --no-deps: {' '.join(wheels)}")
 
@@ -699,6 +724,26 @@ def _install_nvep_runtime_wheels(built_nixl: bool) -> None:
             "it has a pip module. The wheels we tried to install: "
             f"{wheels}"
         ) from e
+
+
+def _compile_deps_installed(specs) -> bool:
+    """True when every spec is already satisfied. False on any doubt, so that an
+    unreadable environment still reaches the install below."""
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+        from packaging.requirements import InvalidRequirement, Requirement
+        from packaging.version import InvalidVersion
+    except ImportError:
+        return False
+
+    for spec in specs:
+        try:
+            req = Requirement(spec)
+            if not req.specifier.contains(version(req.name), prereleases=True):
+                return False
+        except (PackageNotFoundError, InvalidRequirement, InvalidVersion):
+            return False
+    return True
 
 
 def _install_cuda_tile_compile_deps() -> None:
@@ -744,6 +789,18 @@ def _install_cuda_tile_compile_deps() -> None:
         "nvidia-nvjitlink<14,>=13.3",
         "nvidia-cuda-crt<13.4,>=13.2",
     ]
+
+    if _compile_deps_installed(wheels):
+        print("[BUILD] cuda-tile compile deps already installed; skipping", flush=True)
+        return
+
+    if _no_pip_installs():
+        print(
+            "[BUILD] FLASHINFER_BUILD_NO_PIP=1; not installing cuda-tile compile deps",
+            flush=True,
+        )
+        return
+
     print(f"[BUILD] cuda-tile compile deps (--no-deps): {' '.join(wheels)}", flush=True)
 
     uv_bin = shutil.which("uv")
@@ -995,9 +1052,10 @@ def _create_data_dir(use_symlinks=True):
             if src.exists():
                 shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
 
-    ln("3rdparty/cutlass", "cutlass")
+    ln("3rdparty/actlize", "cutlass")
     ln("3rdparty/spdlog", "spdlog")
     ln("3rdparty/cccl", "cccl")
+    ln("3rdparty/sailify", "sailify")
     ln("csrc", "csrc")
     ln("include", "include")
 
