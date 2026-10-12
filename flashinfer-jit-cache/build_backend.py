@@ -88,7 +88,7 @@ def _compile_jit_cache(output_dir: Path, verbose: bool = True):
     import subprocess
 
     submodule_check_paths = [
-        project_root / "3rdparty" / "cutlass" / "include",
+        project_root / "3rdparty" / "actlize" / "include",
         project_root / "3rdparty" / "spdlog" / "include",
         project_root / "3rdparty" / "cccl" / "cub",
     ]
