@@ -9,7 +9,7 @@ echo '=== Zhenwu PPU Verification ==='
 echo "Hostname: $(hostname), Node: ${NODE_NAME:-}"
 echo "RANK=${RANK:-} NODE_RANK=${NODE_RANK:-} WORLD_SIZE=${WORLD_SIZE:-} NPROC_PER_NODE=${NPROC_PER_NODE:-}"
 
-python -m pip install -v .
+python -m pip install -v . pytest
 python -c "import flashinfer; print('flashinfer', flashinfer.__version__)"
 
 DESELECT=(
@@ -25,7 +25,7 @@ DESELECT=(
 
 echo '=== Run unit tests (PPU subset) ==='
 set +e
-pytest --continue-on-collection-errors \
+python -m pytest --continue-on-collection-errors \
   -v -ra --tb=short --color=yes \
   "${DESELECT[@]}" \
   tests/jit/test_jit_cpp_ext.py \
