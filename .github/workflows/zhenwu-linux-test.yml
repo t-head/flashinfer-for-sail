@@ -2,7 +2,7 @@ name: Zhenwu Linux Test
 
 on:
   pull_request:
-    branches: [v0.6.17_dev, for-ci-test]
+    branches: [v0.6.17]
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'flashinfer/**'
