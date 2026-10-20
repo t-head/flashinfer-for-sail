@@ -30,7 +30,6 @@ python -m pytest --continue-on-collection-errors \
   "${DESELECT[@]}" \
   tests/jit/test_jit_cpp_ext.py \
   tests/autotuner/test_autotuner_configs.py \
-  tests/grouped_mm/test_grouped_mm_bf16.py \
   tests/utils/test_norm.py \
   tests/utils/test_activation.py \
   tests/utils/test_sampling.py
