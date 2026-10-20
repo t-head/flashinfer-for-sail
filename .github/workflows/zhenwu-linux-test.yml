@@ -31,7 +31,7 @@ permissions:
   contents: read
 
 env:
-  PPU_IMAGE: download.t-head.cn/docker_release/pytorch:sdk2.2.0-2.13.0-ubuntu24.04-hggcrt3-py312-20261005
+  PPU_IMAGE: download.t-head.cn/docker_release/pytorch:sdk2.2.0-2.10.0-ubuntu24.04-hggcrt3-py312-20261005
   PPU_SOURCE_DIR: /workspace/source
 
 jobs:
@@ -39,7 +39,7 @@ jobs:
     name: Zhenwu Build and Test
     runs-on: k8s-runner-group-cpu-thead
     container:
-      image: download.t-head.cn/docker_release/pytorch:sdk2.2.0-2.13.0-ubuntu24.04-hggcrt3-py312-20261005
+      image: download.t-head.cn/docker_release/pytorch:sdk2.2.0-2.10.0-ubuntu24.04-hggcrt3-py312-20261005
     timeout-minutes: 360
     steps:
       - name: Checkout source
