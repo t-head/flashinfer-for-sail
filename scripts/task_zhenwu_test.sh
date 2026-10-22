@@ -9,7 +9,15 @@ echo '=== Zhenwu PPU Verification ==='
 echo "Hostname: $(hostname), Node: ${NODE_NAME:-}"
 echo "RANK=${RANK:-} NODE_RANK=${NODE_RANK:-} WORLD_SIZE=${WORLD_SIZE:-} NPROC_PER_NODE=${NPROC_PER_NODE:-}"
 
-python -m pip install -v . pytest
+echo '=== Fetch git submodules (equivalent to git clone --recursive) ==='
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  git submodule sync --recursive
+  git submodule update --init --recursive
+else
+  echo 'Not a git working tree; assume submodules already present.'
+fi
+
+python -m pip install -v .
 python -c "import flashinfer; print('flashinfer', flashinfer.__version__)"
 
 DESELECT=(
@@ -24,6 +32,8 @@ DESELECT=(
 )
 
 echo '=== Run unit tests (PPU subset) ==='
+python -m pip install "pytest==7.3.2"
+python -m pip install --upgrade filelock
 set +e
 python -m pytest --continue-on-collection-errors \
   -v -ra --tb=short --color=yes \
