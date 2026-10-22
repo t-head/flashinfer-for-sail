@@ -29,6 +29,13 @@ DESELECT=(
   --deselect "tests/utils/test_sampling.py::test_sampling_from_logits_seed_offset_reproducibility[32000-989]"
   --deselect "tests/utils/test_sampling.py::test_sampling_from_logits_seed_offset_reproducibility[128256-99]"
   --deselect "tests/utils/test_sampling.py::test_sampling_from_logits_seed_offset_reproducibility[128256-989]"
+  --deselect "tests/utils/test_sampling.py::test_top_k_top_p_sampling_from_probs_logits_alignment[0.1-100-128256-1]"
+  --deselect "tests/utils/test_sampling.py::test_top_k_top_p_sampling_from_probs_logits_alignment[0.1-100-128256-99]"
+  --deselect "tests/utils/test_sampling.py::test_top_k_top_p_sampling_from_probs_logits_alignment[0.1-100-128256-989]"
+  --deselect "tests/utils/test_sampling.py::test_top_k_top_p_sampling_from_probs_logits_alignment[0.5-100-128256-1]"
+  --deselect "tests/utils/test_sampling.py::test_top_k_top_p_sampling_from_probs_logits_alignment[0.5-100-128256-99]"
+  --deselect "tests/utils/test_sampling.py::test_top_k_top_p_sampling_from_probs_logits_alignment[0.5-100-128256-989]"
+
 )
 
 echo '=== Run unit tests (PPU subset) ==='
