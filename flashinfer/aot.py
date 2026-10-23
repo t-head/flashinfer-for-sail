@@ -799,6 +799,8 @@ def gen_all_modules(
         for act_name in act_func_def_str:
             jit_specs.append(gen_act_and_mul_module(act_name))
 
+    # Unsupport cutlass opTensor
+    add_moe = add_moe if "PPU_SDK" not in os.environ.keys() else False
     if add_moe:
         jit_specs.append(gen_gemm_module())
         if has_sm100a_exact or has_sm103a_exact:
