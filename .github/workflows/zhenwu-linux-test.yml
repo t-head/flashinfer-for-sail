@@ -1,0 +1,77 @@
+name: Zhenwu Linux Test
+
+on:
+  pull_request:
+    branches: [v0.6.18]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'flashinfer/**'
+      - 'csrc/**'
+      - 'include/**'
+      - '3rdparty/**'
+      - '3rdparty_patches/**'
+      - '.gitmodules'
+      - 'build_backend.py'
+      - 'build_utils.py'
+      - 'pyproject.toml'
+      - 'requirements.txt'
+      - 'version.txt'
+      - 'tests/**'
+      - 'pytest.ini'
+      - 'scripts/task_zhenwu_test.sh'
+      - '.github/workflows/zhenwu-linux-test.yml'
+      - '!**/*.md'
+  workflow_dispatch:
+
+concurrency:
+  group: ppu-linux-test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PPU_IMAGE: download.t-head.cn/docker_release/pytorch:sdk2.2.0-2.10.0-ubuntu24.04-hggcrt3-py312-20261005
+  PPU_SOURCE_DIR: /workspace/source
+
+jobs:
+  zhenwu-build-test:
+    name: Zhenwu Build and Test
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run tests on Zhenwu 810E
+        uses: t-head/ppu-scheduler-action@main
+        with:
+          nnodes: 0
+          nproc_per_node: 1
+          node_selector: "board-type=OAM-810E"
+          host_volumes: "/nas_aisw:/nas_aisw,/wl_nas:/mnt/wl_nas"
+          image: ${{ env.PPU_IMAGE }}
+          source_dir: ${{ env.PPU_SOURCE_DIR }}
+          namespace: ppu-sched
+          timeout_minutes: 300
+          command: |
+            set -eu
+            bash "${PPU_SOURCE_DIR:-/workspace/source}/scripts/task_zhenwu_test.sh"
+
+      - name: Test Summary
+        if: "!cancelled()"
+        run: |
+          {
+            echo "## zhenwu Linux Build and Test"
+            echo "- Image: \`${PPU_IMAGE}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "- Status: Passed"
+            else
+              echo "- Status: ${{ job.status }}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
