@@ -582,6 +582,12 @@ def _ensure_nixl_wheel() -> None:
             "pre-install, so the pre-flight probe will skip NIXL-EP"
         )
         return
+    if _no_pip_installs():
+        print(
+            "[BUILD_NVEP] FLASHINFER_BUILD_NO_PIP=1; no NIXL wheel to "
+            "pre-install, so the pre-flight probe will skip NIXL-EP"
+        )
+        return
     cuda_major = _detect_cuda_major()
     wheel = f"nixl-cu{cuda_major}=={_NIXL_WHEEL_VERSION}"
     print(f"[BUILD_NVEP] pre-installing NIXL wheel --no-deps: {wheel}")
@@ -1083,9 +1089,10 @@ def _create_data_dir(use_symlinks=True):
             if src.exists():
                 shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
 
-    ln("3rdparty/cutlass", "cutlass")
+    ln("3rdparty/actlize", "cutlass")
     ln("3rdparty/spdlog", "spdlog")
     ln("3rdparty/cccl", "cccl")
+    ln("3rdparty/sailify", "sailify")
     ln("csrc", "csrc")
     ln("include", "include")
 
