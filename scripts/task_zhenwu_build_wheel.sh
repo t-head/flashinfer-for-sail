@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 # Build the FlashInfer PPU (SAIL) wheel inside the Zhenwu pod.
 #
-# Mirrors the AONE-CI flow of flashinfer_build.sh, adapted to the GitHub
-# Actions ppu-scheduler-action environment: the source tree is staged at
-# $PPU_SOURCE_DIR and the wheel is published to $ARTIFACT_DIR on the NAS
-# mount so the workflow can upload it as an artifact.
+# Pure-JIT main wheel: ships the flashinfer Python package, its JIT runtime
+# and the kernel *sources*/headers (csrc, include, cutlass/spdlog/cccl) — NO
+# ahead-of-time kernel pre-compilation. Kernels are sailified to hgcc and
+# compiled on first use at runtime. The main wheel's build_wheel() never
+# compiled kernels anyway (it only stages csrc/include via _create_data_dir),
+# so the old `python -m flashinfer.aot` step merely filled the throwaway
+# runtime workspace cache; dropping it keeps the wheel byte-for-byte the same
+# while removing the bulk of the build time.
+#
+# Adapted to the GitHub Actions ppu-scheduler-action environment: the source
+# tree is staged at $PPU_SOURCE_DIR and the wheel is published to $ARTIFACT_DIR
+# on the NAS mount so the workflow can upload it as an artifact.
 set -eu
 
 cd "${PPU_SOURCE_DIR:-/workspace/source}"
@@ -77,14 +85,13 @@ pip install tomli
 pip install apache-tvm-ffi
 pip install pynvml==13.0.1
 
-echo '=== AOT kernel generation ==='
-python -m flashinfer.aot
-
-echo '=== Build wheel ==='
+# Pure JIT: no `python -m flashinfer.aot` pre-compile. build_wheel() ships
+# sources + JIT runtime only; kernels are compiled on first use at runtime.
+echo '=== Build wheel (pure JIT, no AOT pre-compile) ==='
 SECONDS=0
 rc=0
 FLASHINFER_BUILD_NO_PIP=1 BUILD_NVEP=0 python -m build --no-isolation --wheel 2>&1 | tee ppu_wheel_build.log || rc=$?
-echo "[build] wheel 编译耗时 ${SECONDS}s，退出码 ${rc}"
+echo "[build] wheel 构建耗时 ${SECONDS}s，退出码 ${rc}"
 [ "${rc}" -eq 0 ] || exit "${rc}"
 
 echo '=== Publish wheel ==='

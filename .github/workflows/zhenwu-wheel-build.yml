@@ -49,7 +49,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: "编译 wheel (810E, 1 PPU)"
+      - name: "构建 wheel (纯 JIT, 810E)"
         uses: t-head/ppu-scheduler-action@main
         with:
           nnodes: 0
