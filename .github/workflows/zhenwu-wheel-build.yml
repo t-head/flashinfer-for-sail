@@ -1,0 +1,88 @@
+name: Zhenwu Wheel Build
+
+on:
+  pull_request:
+    branches: [v0.6.18]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'flashinfer/**'
+      - 'csrc/**'
+      - 'include/**'
+      - '3rdparty/**'
+      - '3rdparty_patches/**'
+      - '.gitmodules'
+      - 'build_backend.py'
+      - 'build_utils.py'
+      - 'pyproject.toml'
+      - 'requirements.txt'
+      - 'version.txt'
+      - 'scripts/task_zhenwu_build_wheel.sh'
+      - '.github/workflows/zhenwu-wheel-build.yml'
+      - '!**/*.md'
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ppu-wheel-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PPU_IMAGE: download.t-head.cn/docker_release/pytorch:sdk2.2.0-2.10.0-ubuntu24.04-hggcrt3-py312-20261005
+  PPU_SOURCE_DIR: /workspace/source
+  # NAS 双视角：PPU pod 内挂在 /mnt/wl_nas，runner 宿主机上是 /wl_nas
+  ARTIFACT_DIR: "/mnt/wl_nas/flashinfer-ci/${{ github.run_id }}-${{ github.run_attempt }}"
+
+jobs:
+  wheel-build:
+    name: Zhenwu Wheel Build
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: "编译 wheel (810E, 1 PPU)"
+        uses: t-head/ppu-scheduler-action@main
+        with:
+          nnodes: 0
+          nproc_per_node: 1
+          node_selector: "board-type=OAM-810E"
+          host_volumes: "/nas_aisw:/nas_aisw,/wl_nas:/mnt/wl_nas"
+          image: ${{ env.PPU_IMAGE }}
+          source_dir: ${{ env.PPU_SOURCE_DIR }}
+          namespace: ppu-sched
+          timeout_minutes: 300
+          extra_env: "ARTIFACT_DIR=${{ env.ARTIFACT_DIR }},PPU_SOURCE_DIR=${{ env.PPU_SOURCE_DIR }}"
+          command: |
+            set -eu
+            bash "${PPU_SOURCE_DIR:-/workspace/source}/scripts/task_zhenwu_build_wheel.sh"
+
+      - name: "上传 wheel"
+        uses: actions/upload-artifact@v4
+        with:
+          name: flashinfer-ppu-wheel
+          path: /wl_nas/flashinfer-ci/${{ github.run_id }}-${{ github.run_attempt }}/*
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Build Summary
+        if: "!cancelled()"
+        run: |
+          {
+            echo "## Zhenwu PPU Wheel Build"
+            echo "- Image: \`${PPU_IMAGE}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "- Status: Passed (wheel uploaded as artifact \`flashinfer-ppu-wheel\`)"
+            else
+              echo "- Status: ${{ job.status }}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
