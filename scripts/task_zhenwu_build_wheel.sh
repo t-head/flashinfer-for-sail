@@ -15,13 +15,16 @@ echo "Hostname: $(hostname), Node: ${NODE_NAME:-}"
 
 # PPU SDK / PCCL: the Zhenwu image ships both; source envsetup only when
 # present so local cuda-free runs keep the native toolchain.
+# The envsetup scripts reference unset positional/loop vars (e.g. pccl's
+# `$1`), which `set -u` treats as a fatal "unbound variable" — relax -u
+# around the sourcing, exactly like the TE ppu-build workflow does.
 if [ -f /usr/local/PPU_SDK/envsetup.sh ]; then
   # shellcheck disable=SC1091
-  source /usr/local/PPU_SDK/envsetup.sh
+  set +u; source /usr/local/PPU_SDK/envsetup.sh; set -u
 fi
 if [ -f /usr/local/pccl/envsetup.sh ]; then
   # shellcheck disable=SC1091
-  source /usr/local/pccl/envsetup.sh
+  set +u; source /usr/local/pccl/envsetup.sh; set -u
 fi
 
 echo '=== Fetch git submodules ==='
