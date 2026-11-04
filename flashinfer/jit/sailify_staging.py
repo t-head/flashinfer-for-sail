@@ -161,6 +161,19 @@ def _staged_path(src_path: str, roots, staging: str) -> Optional[Tuple[str, str]
     return None
 
 
+def _staged_dir(real_dir: str, roots, staging: str) -> Optional[str]:
+    """Map an upstream directory to its staged mirror (None if outside roots)."""
+    for base, sub in roots:
+        if real_dir == base:
+            return os.path.join(staging, sub) if sub else staging
+        if real_dir.startswith(base + os.sep):
+            rel = os.path.relpath(real_dir, base)
+            return (
+                os.path.join(staging, sub, rel) if sub else os.path.join(staging, rel)
+            )
+    return None
+
+
 def _sync_tree(src_dir: Path, dst_dir: Path) -> None:
     """Copy new/changed files; identical files keep their mtime.
 
@@ -280,8 +293,14 @@ def stage_module(
 
     Returns (staged_sources, include_dirs) where include_dirs prepend the
     ninja search path so the staged tree shadows its upstream originals.
+    ``extra_include_dirs`` are part of the include closure as well: their
+    trees (e.g. TRT-LLM's ``csrc/nv_internal``) are staged/converted like
+    the rest and the staged copies replace them on the search path.
     """
-    signature = tuple(str(s) for s in sources)
+    signature = (
+        tuple(str(s) for s in sources),
+        tuple(str(d) for d in (extra_include_dirs or ())),
+    )
     cached = _STAGED.get(name)
     if cached is not None and cached[0] == signature:
         return cached[1], cached[2]
@@ -324,6 +343,18 @@ def stage_module(
         ]
         if gen_dir.is_dir():
             header_include_dirs.append(os.path.realpath(str(gen_dir)))
+        # extra_include_dirs are appended last because the ninja flags append
+        # them last too; skipping them here left e.g. TRT-LLM's
+        # csrc/nv_internal/include headers unstaged and therefore unconverted,
+        # so their <cuda_fp16.h>/<cublasLt.h> includes never resolved on PPU.
+        extra_reals: List[str] = []
+        for extra in extra_include_dirs or ():
+            real = os.path.realpath(str(extra))
+            if real in extra_reals:
+                continue
+            extra_reals.append(real)
+            if os.path.isdir(real):
+                header_include_dirs.append(real)
 
         staged_sources = []
         flat_used = False
@@ -429,6 +460,23 @@ def stage_module(
         if flat_used:
             include_dirs.append(module_root)
 
+        # Shadow the extra include dirs with their staged mirrors: the
+        # originals still spell CUDA vocabulary that a PPU toolchain cannot
+        # resolve, and the converted copies (staged above via the closure
+        # walk) must win over them. Dirs outside the staged roots have no
+        # mirror and keep their original path.
+        staged_extra_dirs: List[Path] = []
+        unstaged_extra_dirs: List[Path] = []
+        for real in extra_reals:
+            staged = _staged_dir(real, roots, str(module_root))
+            if staged is not None and os.path.isdir(staged):
+                staged_extra_dirs.append(Path(staged))
+            else:
+                unstaged_extra_dirs.append(Path(real))
+                logger.debug("sailify: %s has no staged mirror for %s", real, name)
+        include_dirs = include_dirs + staged_extra_dirs + unstaged_extra_dirs
+        include_dirs = list(dict.fromkeys(include_dirs))
+
         n_headers = max(len(stats.get("ppuified", [])) - len(sources), 0)
         logger.info(
             "sailify: staged %d sources (+%d headers) for %s into %s",
@@ -438,8 +486,6 @@ def stage_module(
             module_root,
         )
 
-        if extra_include_dirs is not None:
-            include_dirs = include_dirs + list(extra_include_dirs)
         result_tuple = (staged_sources, include_dirs)
         _STAGED[name] = (signature, staged_sources, include_dirs)
         return staged_sources, include_dirs
