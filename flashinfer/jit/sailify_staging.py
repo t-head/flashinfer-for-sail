@@ -174,6 +174,15 @@ def _staged_dir(real_dir: str, roots, staging: str) -> Optional[str]:
     return None
 
 
+def _mirror_join(staged_base: str, include: str, staging: str) -> Optional[str]:
+    """Join an include onto a staged path, refusing to escape the mirror."""
+    target = os.path.normpath(os.path.join(staged_base, include))
+    root = os.path.normpath(staging)
+    if target == root or target.startswith(root + os.sep):
+        return target
+    return None
+
+
 def _sync_tree(src_dir: Path, dst_dir: Path) -> None:
     """Copy new/changed files; identical files keep their mtime.
 
@@ -293,9 +302,10 @@ def stage_module(
 
     Returns (staged_sources, include_dirs) where include_dirs prepend the
     ninja search path so the staged tree shadows its upstream originals.
-    ``extra_include_dirs`` are part of the include closure as well: their
-    trees (e.g. TRT-LLM's ``csrc/nv_internal``) are staged/converted like
-    the rest and the staged copies replace them on the search path.
+    ``extra_include_dirs`` with a staged mirror (e.g. TRT-LLM's
+    ``csrc/nv_internal``) join the include closure and are converted like the
+    rest; their mirrors replace them on the search path, in the caller's
+    order. Directories outside the roots keep their original path.
     """
     signature = (
         tuple(str(s) for s in sources),
@@ -347,13 +357,16 @@ def stage_module(
         # them last too; skipping them here left e.g. TRT-LLM's
         # csrc/nv_internal/include headers unstaged and therefore unconverted,
         # so their <cuda_fp16.h>/<cublasLt.h> includes never resolved on PPU.
+        # Only directories with a staged mirror take part: directories outside
+        # the roots would be staged by basename, where like-named headers from
+        # different trees overwrite each other.
         extra_reals: List[str] = []
         for extra in extra_include_dirs or ():
             real = os.path.realpath(str(extra))
             if real in extra_reals:
                 continue
             extra_reals.append(real)
-            if os.path.isdir(real):
+            if os.path.isdir(real) and _staged_dir(real, roots, str(tmp)):
                 header_include_dirs.append(real)
 
         staged_sources = []
@@ -362,6 +375,11 @@ def stage_module(
         pending = list(visited)
         stats: Dict[str, list] = {}
         failures: List[str] = []
+        # A symlink inside a root can point at a file outside every root (e.g.
+        # gen_root's trtllmGen_bmm_export). Its realpath has no staged mirror,
+        # so remember the include-relative path the compiler will use; the
+        # staged copy must land there or the qualified include stops resolving.
+        logical_targets: Dict[str, str] = {}
         while pending:
             src_path = pending.pop(0)
             _discover_includes(src_path, header_include_dirs, visited, pending)
@@ -373,30 +391,49 @@ def stage_module(
                 source = Path(src_path).read_text(errors="replace")
             except OSError:
                 source = ""
+            src_logical = logical_targets.get(src_path)
             for include in _INCLUDE_RE.findall(source):
-                candidates = [Path(src_path).parent / include]
-                candidates.extend(Path(d) / include for d in header_include_dirs)
-                for candidate in candidates:
-                    if candidate.is_file():
-                        resolved = os.path.realpath(str(candidate))
-                        if resolved not in visited:
-                            visited.add(resolved)
-                            pending.append(resolved)
-                        break
+                resolved = None
+                logical = None
+                sibling = os.path.join(os.path.dirname(src_path), include)
+                if os.path.isfile(sibling):
+                    resolved = os.path.realpath(sibling)
+                    if src_logical is not None:
+                        logical = _mirror_join(
+                            os.path.dirname(src_logical), include, str(tmp)
+                        )
+                else:
+                    for d in header_include_dirs:
+                        candidate = os.path.join(d, include)
+                        if os.path.isfile(candidate):
+                            resolved = os.path.realpath(candidate)
+                            staged_dir = _staged_dir(d, roots, str(tmp))
+                            if staged_dir is not None:
+                                logical = _mirror_join(staged_dir, include, str(tmp))
+                            break
+                if resolved is None:
+                    continue
+                if resolved not in visited:
+                    visited.add(resolved)
+                    pending.append(resolved)
+                if logical is not None:
+                    logical_targets.setdefault(resolved, logical)
             mapped = _staged_path(src_path, roots, str(tmp))
-            if mapped is None:
-                # Out-of-tree source (e.g. generated next to the workspace):
-                # stage flat at the module root. The preprocessor derives the
-                # output name from the source's own directory, so convert
-                # first and move afterwards.
-                anchor = os.path.dirname(src_path)
-                converted = os.path.join(
-                    str(tmp), os.path.basename(src_path)
-                )
-                flat_used = True
-            else:
+            logical = logical_targets.get(src_path)
+            if mapped is not None:
                 staged_path, anchor = mapped
                 converted = staged_path
+            elif logical is not None:
+                # Converted next to the module root, then moved to the path the
+                # include-relative lookup expects.
+                anchor = os.path.dirname(src_path)
+                converted = logical
+            else:
+                # Out-of-tree source (e.g. generated next to the workspace):
+                # stage flat at the module root.
+                anchor = os.path.dirname(src_path)
+                converted = os.path.join(str(tmp), os.path.basename(src_path))
+                flat_used = True
             result = preprocessor(
                 output_directory=str(tmp),
                 filepath=src_path,
@@ -406,6 +443,11 @@ def stage_module(
                 show_progress=False,
                 project_directory=anchor,
             )
+            if result.status == "ok" and mapped is None and logical is not None:
+                produced = os.path.join(str(tmp), os.path.basename(src_path))
+                if os.path.abspath(produced) != os.path.abspath(converted):
+                    os.makedirs(os.path.dirname(converted), exist_ok=True)
+                    shutil.move(produced, converted)
             if result.status != "ok":
                 failures.append(f"{src_path}: {result.status}")
             elif not os.path.isfile(converted):
@@ -463,18 +505,17 @@ def stage_module(
         # Shadow the extra include dirs with their staged mirrors: the
         # originals still spell CUDA vocabulary that a PPU toolchain cannot
         # resolve, and the converted copies (staged above via the closure
-        # walk) must win over them. Dirs outside the staged roots have no
-        # mirror and keep their original path.
-        staged_extra_dirs: List[Path] = []
-        unstaged_extra_dirs: List[Path] = []
+        # walk) must win over them. Mapping in place keeps the caller's
+        # search precedence; dirs without a mirror keep their original path.
+        mapped_extra_dirs: List[Path] = []
         for real in extra_reals:
             staged = _staged_dir(real, roots, str(module_root))
             if staged is not None and os.path.isdir(staged):
-                staged_extra_dirs.append(Path(staged))
+                mapped_extra_dirs.append(Path(staged))
             else:
-                unstaged_extra_dirs.append(Path(real))
+                mapped_extra_dirs.append(Path(real))
                 logger.debug("sailify: %s has no staged mirror for %s", real, name)
-        include_dirs = include_dirs + staged_extra_dirs + unstaged_extra_dirs
+        include_dirs = include_dirs + mapped_extra_dirs
         include_dirs = list(dict.fromkeys(include_dirs))
 
         n_headers = max(len(stats.get("ppuified", [])) - len(sources), 0)

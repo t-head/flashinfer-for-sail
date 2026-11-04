@@ -109,7 +109,9 @@ def staged(tmp_path, monkeypatch):
     )
     return SimpleNamespace(
         csrc=csrc,
+        gen=gen,
         extra=extra,
+        tmp_path=tmp_path,
         module_root=tmp_path / "cache" / "sailified" / "test_module",
     )
 
@@ -165,3 +167,88 @@ def test_cache_is_keyed_on_extra_include_dirs(staged):
     _, without_extras = _stage(staged, sources, [])
     _, with_extras = _stage(staged, sources, [csrc / "nv_internal" / "include"])
     assert [str(d) for d in without_extras] != [str(d) for d in with_extras]
+
+
+def test_symlinked_export_headers_keep_their_include_paths(staged):
+    """gen_root export headers are symlinks to cubins outside the roots.
+
+    Replacing the original gen_root with its mirror must not flatten them to
+    the module root: the qualified include path has to stay resolvable.
+    """
+    cubin_dir = (
+        staged.tmp_path
+        / "cubins"
+        / "flashinfer"
+        / "trtllm"
+        / "batched_gemm"
+        / "trtllmGen_bmm_export"
+    )
+    cubin_dir.mkdir(parents=True)
+    (cubin_dir / "BatchedGemmInterface.h").write_text(
+        "#pragma once\n#include <cuda_fp16.h>\n"
+    )
+
+    gen_root = staged.gen / "trtllm_export" / "test_module"
+    symlink = (
+        gen_root
+        / "flashinfer"
+        / "trtllm"
+        / "batched_gemm"
+        / "trtllmGen_bmm_export"
+    )
+    symlink.parent.mkdir(parents=True)
+    os.symlink(str(cubin_dir), str(symlink))
+    (gen_root / "flashinferMetaInfo.h").write_text("#pragma once\n")
+
+    source = staged.csrc / "fused_moe" / "symlink_user.cu"
+    source.write_text(
+        '#include "flashinfer/trtllm/batched_gemm/'
+        'trtllmGen_bmm_export/BatchedGemmInterface.h"\n'
+        '#include "flashinferMetaInfo.h"\n'
+    )
+
+    _, include_dirs = _stage(staged, [source], [gen_root])
+
+    staged_gen_root = (
+        staged.module_root / "gen" / "trtllm_export" / "test_module"
+    )
+    header = (
+        staged_gen_root
+        / "flashinfer"
+        / "trtllm"
+        / "batched_gemm"
+        / "trtllmGen_bmm_export"
+        / "BatchedGemmInterface.h"
+    )
+    assert header.is_file()
+    assert "<hggc_fp16.h>" in header.read_text()
+    dirs = [str(d) for d in include_dirs]
+    assert str(staged_gen_root) in dirs
+    assert str(gen_root) not in dirs
+
+
+def test_extra_include_dir_order_is_preserved(staged):
+    """Staged mirrors must not jump ahead of earlier pass-through directories."""
+    source = staged.csrc / "fused_moe" / "order_user.cu"
+    source.write_text('#include "tensorrt_llm/common/cudaUtils.h"\n')
+    extras = [staged.extra, staged.csrc / "nv_internal" / "include"]
+
+    _, include_dirs = _stage(staged, [source], extras)
+
+    dirs = [str(d) for d in include_dirs]
+    assert dirs.index(str(staged.extra)) < dirs.index(
+        str(staged.module_root / "csrc" / "nv_internal" / "include")
+    )
+
+
+def test_unmapped_extra_dir_is_not_walked(staged):
+    """Out-of-tree extras have no mirror; staging them by basename collides."""
+    (staged.extra / "external.h").write_text(
+        "#pragma once\n#include <cuda_fp16.h>\n"
+    )
+    source = staged.csrc / "fused_moe" / "external_user.cu"
+    source.write_text('#include "external.h"\n')
+
+    _stage(staged, [source], [staged.extra])
+
+    assert not (staged.module_root / "external.h").exists()
