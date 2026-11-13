@@ -65,8 +65,15 @@ def _preprocessor(
     return SimpleNamespace(status="ok")
 
 
+COMPAT_HEADERS = ("compatible_wrapper.h", "ppu_unsupported_stubs.h")
+
+
 def _ensure_ppu_compat(root):
-    os.makedirs(os.path.join(root, ".ppu_compat"), exist_ok=True)
+    compat = os.path.join(root, ".ppu_compat")
+    os.makedirs(compat, exist_ok=True)
+    for name in COMPAT_HEADERS:
+        with open(os.path.join(compat, name), "w") as f:
+            f.write(f"// {name}\n")
 
 
 @pytest.fixture
@@ -252,3 +259,41 @@ def test_unmapped_extra_dir_is_not_walked(staged):
     _stage(staged, [source], [staged.extra])
 
     assert not (staged.module_root / "external.h").exists()
+
+
+def test_restaging_keeps_compat_header_mtimes(staged):
+    """Restaging must not force a full recompile of every source.
+
+    Every staged source includes a compat shim, so a fresh mtime on those
+    headers makes ninja rebuild the whole module in each new process.
+    """
+    sources = [staged.csrc / "fused_moe" / "noAuxTcKernels.cu"]
+    _stage(staged, sources, [])
+    compat = staged.module_root / ".ppu_compat"
+    assert sorted(p.name for p in compat.iterdir()) == sorted(COMPAT_HEADERS)
+
+    past = 1_000_000_000  # fixed mtime, unambiguous against "now"
+    for header in compat.iterdir():
+        os.utime(header, (past, past))
+
+    sailify_staging._STAGED.clear()  # state a fresh process starts from
+    _stage(staged, sources, [])
+
+    assert {p.name: p.stat().st_mtime for p in compat.iterdir()} == {
+        name: past for name in COMPAT_HEADERS
+    }
+
+
+def test_stale_compat_header_is_removed(staged):
+    """Shims dropped from the generated set must not linger on the -I path."""
+    sources = [staged.csrc / "fused_moe" / "noAuxTcKernels.cu"]
+    _stage(staged, sources, [])
+    compat = staged.module_root / ".ppu_compat"
+    orphan = compat / "dropped_shim.h"
+    orphan.write_text("#pragma once\n")
+
+    sailify_staging._STAGED.clear()
+    _stage(staged, sources, [])
+
+    assert not orphan.exists()
+    assert (compat / "compatible_wrapper.h").is_file()

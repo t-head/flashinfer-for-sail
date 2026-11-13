@@ -475,12 +475,22 @@ def stage_module(
                 text = text.replace(old, new)
             staged_file.write_text(text, encoding="utf-8")
 
-        # The compat layer is fully regenerated every stage: clear it first
-        # so headers dropped from the shim set cannot linger and hijack
-        # includes (the compat dir precedes the PPU_SDK include path).
+        # Headers dropped from the shim set must not linger and hijack includes
+        # (the compat dir precedes the PPU_SDK include path), but clearing the
+        # whole directory is too coarse: every shim header would come back with
+        # a fresh mtime, and since every staged .cu depends on them ninja would
+        # then rebuild the module from scratch in each new process. Remove only
+        # the orphans and leave the rest to the mtime-preserving sync below.
         compat_dir = module_root / ".ppu_compat"
+        staged_compat = tmp / ".ppu_compat"
         if compat_dir.is_dir():
-            shutil.rmtree(compat_dir)
+            # Reverse order visits children before their parent directories.
+            for stale in sorted(compat_dir.rglob("*"), reverse=True):
+                if stale.is_dir():
+                    if not any(stale.iterdir()):
+                        stale.rmdir()
+                elif not (staged_compat / stale.relative_to(compat_dir)).is_file():
+                    stale.unlink()
         # Commit the staging tree with mtime-preserving sync.
         _sync_tree(tmp, module_root)
 
