@@ -1,6 +1,6 @@
 # tvm-ffi-sail uses a 0.1.dev1 version while providing the required API.
 apache-tvm-ffi>=0.1.dev1,!=0.1.8,!=0.1.8.post0,<0.2
-click
+click>=8.1.7
 # cuda-python + nccl-extensions: runtime deps for the moe_ep EP transport
 # backends (default since the EP install became opt-out; CUDA-13 wheels only
 # — see build_backend.py). NCCL-EP is the released nccl-extensions wheel
@@ -41,16 +41,16 @@ click
 # the full nccl.ep stack.
 cuda-python>=12.0
 cuda-tile>=1.4.0
-einops
+einops>=0.8.0
 nccl-extensions>=0.1.0
 nccl4py>=0.4.1
-ninja
-numpy
+ninja>=1.11.1
+numpy>=1.24.4
 nvidia-cudnn-frontend>=1.30.0
 nvidia-cutlass-dsl>=4.6.2a0
-nvidia-ml-py
+nvidia-ml-py>=12.560.30
 packaging>=24.2
-requests
-tabulate
-torch
-tqdm
+requests>=2.32.4
+tabulate>=0.9.0
+torch>=2.8.0
+tqdm>=4.67.1
