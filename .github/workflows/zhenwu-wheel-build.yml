@@ -2,7 +2,7 @@ name: Zhenwu Wheel Build
 
 on:
   pull_request:
-    branches: [v0.6.18]
+    branches: [v0.7.1]
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'flashinfer/**'
