@@ -14,6 +14,67 @@
  * limitations under the License.
  */
 
+#include "tvm_ffi_utils.h"
+
+using tvm::ffi::Optional;
+
+// The CUB DeviceBatchedTopK backend needs the CCCL 3.x execution vocabulary
+// (<cub/device/device_batched_topk.cuh>, <cuda/__execution/*.h>, cuda::args).
+// The PPU (hggcrt) toolchain's CCCL port does not carry it, so the backend is
+// compiled out on PPU builds: flashinfer/topk.py never routes there
+// (can_use_cub_topk returns False), and the stubs below keep the TVM-FFI
+// exports resolvable while turning a forced FLASHINFER_TOPK_ALGO=cub call into
+// a clear error instead of a load failure.
+#if defined(FLASHINFER_PPU_BUILD)
+
+namespace {
+
+[[noreturn]] void CUBTopKUnavailable() {
+  TVM_FFI_ICHECK(false)
+      << "the CUB top-k backend requires CCCL 3.x, which the PPU toolchain does not provide; "
+         "use the radix or clusters backend instead";
+}
+
+}  // namespace
+
+void cub_topk_page_table_transform(
+    TensorView input, TensorView output_page_table, TensorView src_page_table, TensorView lengths,
+    Optional<TensorView> maybe_output_raw_indices, Optional<TensorView> maybe_workspace_buffer,
+    int64_t top_k, int64_t tie_break, int64_t page_size, Optional<TensorView> maybe_row_to_batch,
+    Optional<TensorView> maybe_row_starts, Optional<TensorView> maybe_page_table_row_starts) {
+  CUBTopKUnavailable();
+}
+
+int64_t cub_topk_page_table_transform_workspace_size(TensorView input, TensorView lengths,
+                                                     int64_t top_k, int64_t tie_break,
+                                                     bool with_raw_indices, bool with_row_starts) {
+  CUBTopKUnavailable();
+}
+
+void cub_topk_ragged_transform(TensorView input, TensorView output_indices, TensorView offsets,
+                               TensorView lengths, Optional<TensorView> maybe_workspace_buffer,
+                               int64_t top_k, int64_t tie_break,
+                               Optional<TensorView> maybe_row_starts) {
+  CUBTopKUnavailable();
+}
+
+int64_t cub_topk_ragged_transform_workspace_size(TensorView input, TensorView lengths,
+                                                 int64_t top_k, int64_t tie_break,
+                                                 bool with_row_starts) {
+  CUBTopKUnavailable();
+}
+
+void cub_topk(TensorView input, TensorView output_indices, TensorView output_values,
+              Optional<TensorView> maybe_workspace_buffer, int64_t top_k, int64_t tie_break) {
+  CUBTopKUnavailable();
+}
+
+int64_t cub_topk_workspace_size(TensorView input, int64_t top_k, int64_t tie_break) {
+  CUBTopKUnavailable();
+}
+
+#else  // !FLASHINFER_PPU_BUILD
+
 // FlashInfer JIT-compiles one fatbin for every arch in FLASHINFER_CUDA_ARCH_LIST, but
 // DeviceBatchedTopK's tie-break configurations require SM 9.0+ and would static_assert on
 // older targets. Defer that diagnosis to runtime (cudaErrorNotSupported); the Python
@@ -33,9 +94,6 @@
 #include <cuda/std/limits>
 
 #include "topk_transform_checks.h"
-#include "tvm_ffi_utils.h"
-
-using tvm::ffi::Optional;
 
 namespace {
 
@@ -814,3 +872,5 @@ int64_t cub_topk_workspace_size(TensorView input, int64_t top_k, int64_t tie_bre
       << "cub_topk workspace-size query failed with error code " << cudaGetErrorString(status);
   return static_cast<int64_t>(workspace_bytes);
 }
+
+#endif  // FLASHINFER_PPU_BUILD

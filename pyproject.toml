@@ -47,7 +47,8 @@ nvep = []
 flashinfer = "flashinfer.__main__:cli"
 
 [build-system]
-requires = ["setuptools>=77", "packaging>=24", "apache-tvm-ffi>=0.1.11,<0.2"]
+# PPU distributions use the compatible tvm-ffi-sail 0.1.dev1 build.
+requires = ["setuptools>=77", "packaging>=24", "apache-tvm-ffi>=0.1.dev1,!=0.1.8,!=0.1.8.post0,<0.2"]
 build-backend = "build_backend"
 backend-path = ["."]
 
@@ -77,9 +78,10 @@ exclude = [
 [tool.setuptools.package-dir]
 "b12x" = "flashinfer/experimental/b12x/_compat/b12x"
 "flashinfer.data" = "."
-"flashinfer.data.cutlass" = "3rdparty/cutlass"
+"flashinfer.data.cutlass" = "3rdparty/actlize"
 "flashinfer.data.spdlog" = "3rdparty/spdlog"
 "flashinfer.data.cccl" = "3rdparty/cccl"
+"flashinfer.data.sailify" = "3rdparty/sailify"
 
 [tool.setuptools.package-data]
 "flashinfer.experimental.b12x.comm.roce" = ["*.c"]
@@ -245,6 +247,16 @@ exclude = [
 "flashinfer.data.cutlass" = ["include/**", "tools/util/include/**"]
 "flashinfer.data.spdlog" = ["include/**"]
 "flashinfer.data.cccl" = ["cub/cub/**", "libcudacxx/include/**", "thrust/thrust/**"]
+# sailify (CUDA-to-PPU source converter) drives the cuda-free PPU JIT/AOT
+# staging; loaded from here by flashinfer.jit.sailify_staging.import_sailify.
+"flashinfer.data.sailify" = [
+  "LICENSE",
+  "sailify/*.py",
+  "sailify/*.h",
+  "sailify/*.tpl",
+  "sailify/unsupported_stubs/*.py",
+  "sailify/unsupported_stubs/*.json",
+]
 # EP backend shared libraries built in-tree from 3rdparty/nixl by default
 # during `pip install` (opt out with BUILD_NIXL_EP=0). The .so files live under
 # flashinfer/moe_ep/backends/split/comm/{nccl,nixl}_ep/_libs/ (gitignored;

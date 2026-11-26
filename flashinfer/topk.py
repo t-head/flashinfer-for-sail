@@ -22,6 +22,7 @@ from typing import Optional, Tuple
 
 import torch
 
+from ._ppu_env import ppu_sdk_root
 from .api_logging import flashinfer_api
 from .jit.topk import gen_topk_module
 from .trace.templates.sampling import (
@@ -676,9 +677,24 @@ def can_use_clusters_topk(algo, device, deterministic, tie_break, dsa_graph_safe
     return (algo is None or algo == "clusters") and not deterministic and cap[0] == 10
 
 
+@functools.cache
+def _is_ppu_build() -> bool:
+    """Whether this build targets the cuda-free PPU toolchain.
+
+    Cached because the detector probes the filesystem; can_use_cub_topk runs on
+    every top_k call.
+    """
+    return ppu_sdk_root() is not None
+
+
 def can_use_cub_topk(algo, input_tensor, tie_break, deterministic, sorted_output=False):
     """Whether the CUB (DeviceBatchedTopK) backend can serve this call."""
 
+    # PPU (cuda-free) builds compile the CUB backend out (csrc/cub_topk.cu): the
+    # PPU toolchain's CCCL port lacks the 3.x execution headers it needs
+    # (cuda/__execution/*.h, cub/device/device_batched_topk.cuh).
+    if _is_ppu_build():
+        return False
     # CUB returns unsorted results and has no reproducible-ordering mode, so
     # sorted / deterministic calls fall through to the native backends.
     if sorted_output or deterministic:

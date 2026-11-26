@@ -911,6 +911,16 @@ def gen_all_modules(
         for act_name in act_func_def_str:
             jit_specs.append(gen_act_and_mul_module(act_name))
 
+    # cuda-free (PPU): cutlass opTensor (MoE) and the nccl-backed comm
+    # modules do not compile under the hggc toolchain — exclude them from
+    # the AOT portfolio. Detection lives in flashinfer._ppu_env (shared with
+    # flashinfer.jit.sailify_staging; PPU_SDK_ROOT override takes precedence
+    # over the CUDA_SDK heuristic).
+    from flashinfer._ppu_env import ppu_sdk_root
+
+    _ppu_build = ppu_sdk_root() is not None
+    add_moe = add_moe and not _ppu_build
+    add_comm = add_comm and not _ppu_build
     if add_moe:
         jit_specs.append(gen_gemm_module())
         if has_sm100a_exact or has_sm103a_exact:
@@ -1178,7 +1188,6 @@ def gen_all_modules(
             gen_quantization_module(),
             gen_rope_module(),
             gen_sampling_module(),
-            gen_topk_module(),
         ]
         if has_sm100 or has_sm103 or has_sm107:
             jit_specs.append(gen_blackwell_softmax_module())
@@ -1187,6 +1196,10 @@ def gen_all_modules(
             (has_sm90, has_sm100, has_sm103, has_sm107, has_sm110, has_sm120, has_sm121)
         ):
             jit_specs.append(gen_cake_sampling_module())
+        # PPU SDK does not currently expose CUDA's programmatic dependency
+        # launch primitive used by the exact top-k kernel.
+        if not _ppu_build:
+            jit_specs.append(gen_topk_module())
         # Fused RMSNorm+SiLU: pre-compile all LUT configs (SM100+ only)
         if has_sm100 or has_sm103:
             for C in _SUPPORTED_C:
@@ -1259,7 +1272,9 @@ def gen_all_modules(
         _ssu_ntokens = [1, 4, 6, 8]
         _ssu_cu_seqlens_dtypes = [torch.int32, torch.int64]
         _ssu_num_accepted_dtypes = [torch.int32, torch.int64]
-        if has_sm80:
+        # The SM80 SSU implementation depends on cuda::barrier and native
+        # mbarrier PTX, neither of which is available through HGGC today.
+        if has_sm80 and not _ppu_build:
             for dtype_combo, dim, dstate, ntokens, cs_dtype, na_dtype in product(
                 _ssu_dtype_combos,
                 _ssu_dims,
@@ -1340,8 +1355,9 @@ def gen_all_modules(
         if cake_sparse_mla_sm120_dsv41_mixed_available():
             jit_specs.append(gen_cake_sparse_mla_sm120_dsv41_mixed_module())
 
-    # Add cuDNN FMHA module
-    jit_specs.append(gen_cudnn_fmha_module())
+    # cuDNN FMHA uses CUDA driver launch attributes and has no PPU runtime.
+    if not _ppu_build:
+        jit_specs.append(gen_cudnn_fmha_module())
 
     # dedup
     names = set()
@@ -1401,8 +1417,8 @@ def compile_and_package_modules(
     jit_env.FLASHINFER_CSRC_DIR = project_root / "csrc"
     jit_env.FLASHINFER_INCLUDE_DIR = project_root / "include"
     jit_env.CUTLASS_INCLUDE_DIRS = [
-        project_root / "3rdparty" / "cutlass" / "include",
-        project_root / "3rdparty" / "cutlass" / "tools" / "util" / "include",
+        project_root / "3rdparty" / "actlize" / "include",
+        project_root / "3rdparty" / "actlize" / "tools" / "util" / "include",
     ]
     jit_env.SPDLOG_INCLUDE_DIR = project_root / "3rdparty" / "spdlog" / "include"
 

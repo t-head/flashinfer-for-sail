@@ -44,7 +44,7 @@ _write_build_metadata()
 
 def _ensure_build_inputs() -> None:
     submodule_paths = [
-        PROJECT_ROOT / "3rdparty" / "cutlass" / "include",
+        PROJECT_ROOT / "3rdparty" / "actlize" / "include",
         PROJECT_ROOT / "3rdparty" / "spdlog" / "include",
         PROJECT_ROOT / "3rdparty" / "cccl" / "cub",
     ]
