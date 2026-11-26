@@ -286,6 +286,11 @@ def build_cuda_cflags(
             # <cuda_runtime.h>; the compat bridge would cover the latter,
             # but the native face keeps tvm-ffi on the PPU path.
             "-DTVM_FFI_CUBIN_LAUNCHER_USE_PPU",
+            # Sources that need a compile-time PPU branch (the hggcrt
+            # toolchain is missing whole CUDA features, not just renamed
+            # identifiers) gate on this define, e.g. the CUB top-k backend
+            # and the PDL grid-dependency wait.
+            "-DFLASHINFER_PPU_BUILD=1",
         ]
 
     env_extra_cuda_cflags = parse_env_flags("FLASHINFER_EXTRA_CUDAFLAGS")
