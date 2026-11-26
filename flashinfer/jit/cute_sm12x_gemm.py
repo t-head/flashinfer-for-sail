@@ -33,7 +33,7 @@ def gen_gemm_sm120_module_cute() -> JitSpec:
     in a single ``.so``. All source is in-tree under ``csrc/cute_sm12x_gemm/
     {cute_sm12x_{mxfp8,fp8}_runner.{h,cu}, cute_sm12x_{mxfp8,fp8}_op{,_jit_binding}.cu,
     sm120_blockscaled/, sm120_blockscaling/, sm120_common/}``;
-    the kernel uses flashinfer's own ``3rdparty/cutlass``.
+    the kernel uses flashinfer's own ``3rdparty/actlize``.
     """
     csrc_dir = jit_env.FLASHINFER_CSRC_DIR / "cute_sm12x_gemm"
     source_paths = [
