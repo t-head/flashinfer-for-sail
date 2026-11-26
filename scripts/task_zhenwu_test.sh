@@ -45,8 +45,8 @@ set +e
 python -m pytest --continue-on-collection-errors \
   -v -ra --tb=short --color=yes \
   "${DESELECT[@]}" \
-  tests/jit/test_jit_cpp_ext.py \
-  tests/autotuner/test_autotuner_configs.py \
+  tests/cpu/jit/test_jit_cpp_ext.py \
+  tests/cpu/autotuner/test_autotuner_configs.py \
   tests/utils/test_norm.py \
   tests/utils/test_activation.py \
   tests/utils/test_sampling.py
