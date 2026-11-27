@@ -41,15 +41,34 @@ DESELECT=(
 echo '=== Run unit tests (PPU subset) ==='
 python -m pip install "pytest==7.3.2"
 python -m pip install --upgrade filelock
+
+# The upstream parametrizations expand tests/utils to ~7600 cases, which does
+# not fit the lane budget. Select only the dimension boundaries (batch 1/989,
+# hidden and vocab 111/16384, ...) so the lane matches the v0.7.1 green-run
+# coverage; Blackwell-only sampling tests are dropped because they skip on PPU.
+UTILS_FILES=(
+  tests/utils/test_norm.py
+  tests/utils/test_activation.py
+  tests/utils/test_sampling.py
+)
+mapfile -t SELECTED_TESTS < <(
+  python scripts/zhenwu_test_select.py "${UTILS_FILES[@]}" || true
+)
+if [ "${#SELECTED_TESTS[@]}" -gt 0 ]; then
+  echo "Selected ${#SELECTED_TESTS[@]} boundary cases from tests/utils"
+  UTILS_ARGS=("${SELECTED_TESTS[@]}")
+else
+  echo 'WARNING: test selection returned nothing; running the full utils files'
+  UTILS_ARGS=("${UTILS_FILES[@]}")
+fi
+
 set +e
 python -m pytest --continue-on-collection-errors \
   -v -ra --tb=short --color=yes \
   "${DESELECT[@]}" \
   tests/cpu/jit/test_jit_cpp_ext.py \
   tests/cpu/autotuner/test_autotuner_configs.py \
-  tests/utils/test_norm.py \
-  tests/utils/test_activation.py \
-  tests/utils/test_sampling.py
+  "${UTILS_ARGS[@]}"
 rc=$?
 set -e
 echo "=== DONE (pytest exit code: ${rc}) ==="
