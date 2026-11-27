@@ -1657,6 +1657,13 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
  */
 template <SplitRowSamplingMode MODE>
 inline uint32_t GetSplitRowSamplingClusterSize(uint32_t batch_size, uint32_t d) {
+#if defined(FLASHINFER_PPU_BUILD)
+  // The PPU (hggcrt) toolchain reports no SM90+ target for this kernel (see
+  // SplitRowRejectionSamplingFromProb), so the cluster route is never taken.
+  (void)batch_size;
+  (void)d;
+  return 0;
+#else
   constexpr uint32_t kTargetChunk = 26624, kMinChunk = 4096;
   int device, major = 0, num_sms = 0, max_smem = 0;
   if (cudaGetDevice(&device) != cudaSuccess) return 0;
@@ -1687,6 +1694,7 @@ inline uint32_t GetSplitRowSamplingClusterSize(uint32_t batch_size, uint32_t d) 
     c *= 2;
   }
   return c;
+#endif
 }
 
 /*!
@@ -1702,6 +1710,11 @@ cudaError_t SplitRowRejectionSamplingFromProb(uint32_t cluster_size, T* probs, I
                                               uint64_t seed_val, uint64_t* offset_arr,
                                               uint64_t offset_val, cudaStream_t stream,
                                               uint32_t seed_stride, uint32_t offset_stride) {
+#if defined(FLASHINFER_PPU_BUILD)
+  // hggcFuncAttributes carries no ptxVersion, and COMPATIBLE_ARCH tops out at 890,
+  // so the SM90 kernel body is compiled out on PPU; always use the single-CTA kernels.
+  return cudaErrorNotSupported;
+#else
   constexpr uint32_t BLOCK_THREADS = SPLIT_ROW_SAMPLING_THREADS;
   using TempStorage = SplitRowSamplingTempStorage<BLOCK_THREADS, SCAN_ALGO>;
   const uint32_t vec_size = std::gcd(16 / sizeof(T), d);
@@ -1738,6 +1751,7 @@ cudaError_t SplitRowRejectionSamplingFromProb(uint32_t cluster_size, T* probs, I
         d, chunk_size, seed_arr, seed_val, offset_arr, offset_val, seed_stride, offset_stride));
   });
   return cudaSuccess;
+#endif
 }
 
 template <typename DType>
