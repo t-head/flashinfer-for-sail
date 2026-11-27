@@ -153,7 +153,14 @@ __device__ __forceinline__ TopkResults fast_topk_cuda_v4(
     return threshold_bin;
   };
 
+#if defined(FLASHINFER_PPU_BUILD)
+  // The PPU (hggcrt) toolchain has no programmatic dependent-launch primitives
+  // (cudaGridDependencySynchronize / griddepcontrol), and a PPU launch never
+  // enables PDL (launch_topk_cluster_kernel clamps it off), so the wait is
+  // compiled out. PDL only overlaps launches; results are unchanged.
+#else
   if (PDL_ENABLED) cudaGridDependencySynchronize();
+#endif
 
   if (radix_thread) {
     if (pre_hist != nullptr) {
@@ -557,6 +564,13 @@ constexpr int MAX_SMEM_CARVEOUT = 227 * 1024;
 
 inline void launch_topk_cluster_kernel(void* kernel, void** args, int grid_dim, int smem_bytes,
                                        int num_clusters, bool pdl_enabled, cudaStream_t stream) {
+#if defined(FLASHINFER_PPU_BUILD)
+  // The kernels compile their grid-dependency wait out on PPU (no hggcrt
+  // primitive), so a PDL launch would start work before the predecessor's
+  // writes are visible. Clamp the flag off instead of advertising the
+  // attribute.
+  pdl_enabled = false;
+#endif
   cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, MAX_SMEM_CARVEOUT);
   cudaFuncSetAttribute(kernel, cudaFuncAttributePreferredSharedMemoryCarveout, 100);
 

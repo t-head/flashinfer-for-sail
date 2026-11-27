@@ -66,7 +66,7 @@ except ImportError:
 
 # Use CUDA JIT implementation instead of CuTe DSL (for debugging/fallback)
 # Also fallback to CUDA JIT if nvidia-cutlass-dsl is not installed
-_USE_CUDA_NORM = os.environ.get("FLASHINFER_USE_CUDA_NORM", "0") == "1"
+_USE_CUDA_NORM = os.environ.get("FLASHINFER_USE_CUDA_NORM", "1") == "1"
 
 if not _USE_CUDA_NORM:
     try:
